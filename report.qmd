@@ -8,27 +8,120 @@ format: typst
 ## **Part 0: libraries**
 
 ```{r}
+setwd("/Users/lexibayot/Documents/stat133/projects/ev-power-lexigbayot/data")
+all_data <- list.files(pattern = "\\.csv$", full.names = TRUE)
+all_data
+csv_data <- lapply(all_data, read.csv)
+csv_data
 
+avg_energy_prices <- csv_data[[1]]
+ev_reg_by_state <- csv_data[[2]]
+reu_2021 <- csv_data[[3]]
+reu_2022 <- csv_data[[4]]
+reu_2023 <- csv_data[[5]]
+teu_2021 <- csv_data[[6]]
+teu_2022 <- csv_data[[7]]
+teu_2023 <- csv_data[[8]]
+
+library(stringr)
+library(tidyr)
+install.packages("usmap")
+library(usmap)
+library(ggplot2)
+library(dplyr)
 ```
 
 ## **Part 1:** **Defining Research Question**
 
-Chosen Question:
+Chosen Question: What are the areas in the United States where renewable energy use has grown rapidly over the years?
 
 ## **Part 2: Data Preparation and Cleaning**
 
 ```{r}
+#data set - avg energy prices
+parts <- str_split_fixed(avg_energy_prices[[1]], ",", n = 4) 
+avg_energy_prices$state <- parts[,1]
+avg_energy_prices$`2021` <- parts[,2]
+avg_energy_prices$`2022` <- parts[,3]
+avg_energy_prices$`2023` <- parts[,4]
 
+cleaned_avg_energy_prices <- avg_energy_prices[-(1:2),-(1:2)]
+cleaned_avg_energy_prices
+
+#data set - ev registration by state (2023)
+cleaned_ev_reg_by_state <- ev_reg_by_state[-(1:2),]
+
+cleaned_ev_reg_by_state$state_abbr <-state.abb[match(
+    cleaned_ev_reg_by_state$electric.vehicle.registrations_by_state..2023., state.name)]
+
+cleaned_ev_reg_by_state$state_abbr[cleaned_ev_reg_by_state$electric.vehicle.registrations_by_state..2023. == "District of Columbia"] <- "DC"
+
+cleaned_ev_reg_by_state <- cleaned_ev_reg_by_state[,-1]
+
+cleaned_ev_reg_by_state <- cleaned_ev_reg_by_state[,c("state_abbr", "X")]
+names(cleaned_ev_reg_by_state)[names(cleaned_ev_reg_by_state) == "X"] <- "EV_reg"
+
+#data set - reu 2021
+cleaned_reu_2021 <- reu_2021 |>
+    mutate(nums_reu = str_extract(Renewable_Use_2021, "\\d+\\.?\\d*"))
+cleaned_reu_2021
+
+#data set - reu 2022
+cleaned_reu_2022 <- reu_2022 |>
+    mutate(nums_reu = str_extract(Renewable_Use_2022, "\\d+\\.?\\d*"))
+cleaned_reu_2022
+
+#data set - reu 2022
+cleaned_reu_2023 <- reu_2023 |>
+    mutate(nums_reu = str_extract(Renewable_Use_2023, "\\d+\\.?\\d*"))
+cleaned_reu_2023
 ```
 
 ## **Part 3: Joining / Pivoting Datasets for Analysis**
 
 ```{r}
+#tue 2021
+cleaned_teu_2021 <- pivot_longer(teu_2021, -Energy_Source, names_to = "State", values_to = "Total Energy Use")
+cleaned_teu_2021 <- cleaned_teu_2021[, c("State", "Energy_Source", "Total Energy Use")]
 
+#tue 2022
+cleaned_teu_2022 <- pivot_longer(teu_2022, -Energy_Source, names_to = "State", values_to = "Total Energy Use")
+cleaned_teu_2022 <- cleaned_teu_2022[, c("State", "Energy_Source", "Total Energy Use")]
+
+#tue 2023
+cleaned_teu_2023 <- pivot_longer(teu_2023, -Energy_Source, names_to = "State", values_to = "Total Energy Use")
+cleaned_teu_2023 <- cleaned_teu_2023[, c("State", "Energy_Source", "Total Energy Use")]
+
+mapping_data <- cleaned_reu_2021 |>
+  full_join(cleaned_reu_2022, by = "State", suffix = c("_2021", "_2022")) |>
+  full_join(cleaned_reu_2023, by = "State", suffix = c("", "_2023"))
+mapping_data <- mapping_data |> rename(nums_reu_2023 = nums_reu)
 ```
 
 ## **Part 4: Mapping Visualization**
 
 ```{r}
+mapping_data <- mapping_data |>
+  mutate(
+    nums_reu_2021 = as.numeric(nums_reu_2021),
+    nums_reu_2022 = as.numeric(nums_reu_2022),
+    nums_reu_2023 = as.numeric(nums_reu_2023)
+  )
 
+final_map_data <- mapping_data %>%
+  select(State, nums_reu_2021, nums_reu_2022, nums_reu_2023) %>%
+  pivot_longer(cols = starts_with("nums_reu"),
+               names_to = "Year", values_to = "Renewable_Use") %>%
+  mutate(
+    Year = str_extract(Year, "\\d{4}"),
+    Renewable_Use = as.numeric(Renewable_Use)
+  ) %>%
+  rename(state = State)
+
+plot_usmap(data = final_map_data, values = "Renewable_Use", regions = "states", size = 0.01, color = "lightgrey") +
+scale_fill_gradient(
+    low = "#DFF3E3", high = "#2E7D32", na.value = "grey90", name = "U.S. Renewable Energy Use") +
+  facet_wrap(~Year) +
+  labs(title = "Renewable Energy Use by State, 2021-2023") +
+  theme(legend.position = "right")
 ```
